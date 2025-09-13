@@ -14,6 +14,8 @@ This project implements a sophisticated framework for applying **deep reinforcem
 ---
 
 ## Project Structure
+
+```
 LDI_project/
 ├── data/
 │   ├── raw/                     # Raw economic data and liability projections
@@ -35,8 +37,7 @@ LDI_project/
 ├── logs/                        # Training logs
 │   └── tensorboard/             # TensorBoard logs
 └── checkpoints/                  # Training checkpoints
-
----
+```
 
 ## Quick Start
 
