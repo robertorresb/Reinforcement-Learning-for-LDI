@@ -1,4 +1,4 @@
-# Deep Reinforcement Learning for Liability-Driven Investment (LDI)
+# Reinforcement Learning for Liability-Driven Investment (LDI)
 
 ## About the Project
 
