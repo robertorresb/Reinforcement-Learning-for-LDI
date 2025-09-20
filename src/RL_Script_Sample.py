@@ -1315,7 +1315,6 @@ def optimize_model():
 # In[27]:
 
 
-%%time
 num_episodes = 100 #how many episodes to be used for training. If # of episodes > # of sims, data will be repetitively used for training
 num_sims = 800 #how many simulations to be used for training
 tsaa = [0.5,0.5]
@@ -1651,7 +1650,6 @@ def optimize_model():
 # In[34]:
 
 
-%%time
 num_episodes = 100 #how many episodes to be used for training. If # of episodes > # of sims, data will be repetitively used for training
 num_sims = 800 #how many simulations to be used for training
 tsaa = [0.5,0.5]
