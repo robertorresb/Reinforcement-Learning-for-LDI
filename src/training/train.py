@@ -8,129 +8,100 @@ from stable_baselines3.common.logger import configure
 from stable_baselines3.common.noise import OrnsteinUhlenbeckActionNoise
 from stable_baselines3.common.env_util import make_vec_env
 
-# Add the project root directory to the system path
+# Ajusta la ruta del proyecto para importar el ambiente
+# Esto permite que el script se ejecute desde cualquier lugar dentro del proyecto
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(project_root)
 
-# Import the NEW hedging environment
-from src.environment.hedging_env import PortfolioHedgingEnv
+# Importa tu entorno LDI
+from src.environment.LDI_env import LDI_env
 
-def train_hedging_model(
-    data_path="data/processed/NVDA_hedging_features.csv",
+def train_ldi_model(
     log_dir="logs/tensorboard",
     checkpoints_dir="checkpoints",
     best_model_dir="models/best_model",
     eval_log_dir="logs/evaluation",
     total_timesteps=5_000_000,
-    episode_months=6,
-    window_size=5,
-    dead_zone=0.01,  
-    initial_capital=2_000_000,
-    commission=0.00125,
-    action_change_penalty_threshold=0.2,
-    max_shares_per_trade=0.5,
+    episode_length_months=120, 
+    initial_capital=100_000_000,
+    initial_sp500_ratio=0.5,
+    commission=0.001,
     algorithm="PPO",
     verbose=True,
     n_envs=4
 ):
     """
-    Train a reinforcement learning agent for portfolio hedging.
+    Entrena un agente de Reinforcement Learning para la gestión de LDI.
     
     Args:
-        data_path: Path to the processed dataset
-        log_dir: Directory for TensorBoard logs
-        checkpoints_dir: Directory for model checkpoints
-        best_model_dir: Directory to save the best model
-        eval_log_dir: Directory for evaluation logs
-        total_timesteps: Total number of timesteps to train for
-        episode_length_months: Length of each episode in months
-        window_size: Observation window size
-        dead_zone: Dead zone around action changes
-        initial_capital: Initial capital for portfolio 
-        commission: Commission rate for trades
-        action_change_penalty_threshold: Threshold for penalizing large action changes
-        max_shares_per_trade: Maximum proportion of portfolio value per trade
-        algorithm: RL algorithm to use ("PPO" or "DDPG")
-        n_envs: Number of parallel environments for training
-        verbose: Whether to print progress messages
+        log_dir: Directorio para logs de TensorBoard.
+        checkpoints_dir: Directorio para guardar checkpoints del modelo.
+        best_model_dir: Directorio para guardar el mejor modelo.
+        eval_log_dir: Directorio para logs de evaluación.
+        total_timesteps: Número total de pasos de tiempo para entrenar.
+        episode_length_months: Duración de cada episodio en meses.
+        initial_capital: Capital inicial para el portafolio.
+        initial_sp500_ratio: Composición inicial del portafolio.
+        commission: Tasa de comisión por transacción.
+        algorithm: Algoritmo de RL a usar ("PPO" o "DDPG").
+        n_envs: Número de ambientes paralelos para el entrenamiento.
+        verbose: Si se deben imprimir los mensajes de progreso.
     
     Returns:
-        model: Trained RL model
+        model: El modelo de RL entrenado.
     """
-    # Create directories if they don't exist
+    # Crear directorios si no existen
     os.makedirs(log_dir, exist_ok=True)
     os.makedirs(checkpoints_dir, exist_ok=True)
     os.makedirs(best_model_dir, exist_ok=True)
     os.makedirs(eval_log_dir, exist_ok=True)
     
-    # Load data
-    if verbose:
-        print("Loading data from {}...".format(data_path))
-    df = pd.read_csv(data_path)
+    # --- NOTA IMPORTANTE ---
+    # En esta versión, el ambiente LDI_env simula los retornos de activos y las tasas
+    # de interés de forma estocástica (usando un ESG simplificado).
+    # Por lo tanto, no es necesario cargar los datos de los archivos CSV aquí.
+    # Los datos de los pasivos (flujos de caja) se crean directamente en el script
+    # para simplificar. En un caso real, esto provendría de tu modelo actuarial.
     
-    # Convert dates
-    df['Date'] = pd.to_datetime(df['Date'])
-    dates = df['Date'].values
-    
-    # Extract prices and features
-    prices = df['Close'].astype(np.float32).values
-    if np.any(prices <= 0):
-        raise ValueError("Prices contain non-positive values")
-    
-    # Remove Date and Close from features
-    feature_columns = [col for col in df.columns if col not in ['Date', 'Close']]
-    features = df[feature_columns].astype(np.float32).values
+    # Crear los flujos de caja de los pasivos para el ambiente
+    liability_payments = pd.DataFrame({
+        'cash_flow': np.full(360, 10000.0) # Ejemplo: pagos mensuales por 30 años
+    })
     
     if verbose:
-        print(f"Dataset shape: {df.shape}")
-        print(f"Features shape: {features.shape}")
-        print(f"Price data points: {len(prices)}")
-        print(f"Date range: {dates[0]} to {dates[-1]}")
-        print(f"Dead zone: ±{dead_zone*100}%")
+        print("Creando ambientes de entrenamiento...")
     
     def make_env():
-        return PortfolioHedgingEnv(
-            features=features,
-            prices=prices,
-            dates=dates,
-            episode_months=episode_months,
-            window_size=window_size,
-            dead_zone=dead_zone,
+        """Función helper para crear una instancia del entorno."""
+        return LDI_env(
             initial_capital=initial_capital,
-            commission=commission,
-            action_change_penalty_threshold=action_change_penalty_threshold,
-            max_shares_per_trade=max_shares_per_trade
+            initial_sp500_ratio=initial_sp500_ratio,
+            episode_length_months=episode_length_months,
+            commission_rate=commission,
         )
     
+    # Crear el ambiente vectorizado para el entrenamiento en paralelo
     train_env = make_vec_env(lambda: make_env(), n_envs=n_envs, seed=0)
     
-    eval_env = PortfolioHedgingEnv(
-        features=features,
-        prices=prices,
-        dates=dates,
-        episode_months=episode_months,
-        window_size=window_size,
-        dead_zone=dead_zone,
+    # Crear un ambiente de evaluación (sin vectorizar)
+    eval_env = LDI_env(
         initial_capital=initial_capital,
-        commission=commission,
-        action_change_penalty_threshold=action_change_penalty_threshold,
-        max_shares_per_trade=max_shares_per_trade
+        initial_sp500_ratio=initial_sp500_ratio,
+        episode_length_months=episode_length_months,
+        commission_rate=commission,
     )
     
-    
-    # Configure logging
+    # Configurar el logger para TensorBoard
     new_logger = configure(log_dir, ["stdout", "tensorboard"])
     
-    
     if algorithm.upper() == "DDPG":
-        
         if verbose:
-            print("Using DDPG (Deep Deterministic Policy Gradient) for continuous hedging control...")
+            print("Usando DDPG (Deep Deterministic Policy Gradient) para LDI...")
         
         n_actions = train_env.action_space.shape[0]
         action_noise = OrnsteinUhlenbeckActionNoise(
             mean=np.zeros(n_actions),
-            sigma=0.2 * np.ones(n_actions)  
+            sigma=0.2 * np.ones(n_actions) 
         )
         
         model = DDPG(
@@ -149,11 +120,11 @@ def train_hedging_model(
             gradient_steps=1,
             policy_kwargs=dict(net_arch=dict(pi=[256, 256], qf=[256, 256]))
         )
-        model_prefix = "ddpg_hedging"
+        model_prefix = "ddpg_ldi"
         
     else:  # PPO
         if verbose:
-            print("Using PPO (Proximal Policy Optimization) for hedging...")
+            print("Usando PPO (Proximal Policy Optimization) para LDI...")
         
         model = PPO(
             "MlpPolicy",
@@ -172,11 +143,11 @@ def train_hedging_model(
             max_grad_norm=0.5,
             policy_kwargs=dict(net_arch=[dict(pi=[256, 256], vf=[256, 256])])
         )
-        model_prefix = "ppo_hedging"
+        model_prefix = "ppo_ldi"
     
     model.set_logger(new_logger)
     
-    # Set up callbacks
+    # Configurar los callbacks
     checkpoint_callback = CheckpointCallback(
         save_freq=max(10_000 // n_envs, 1),
         save_path=checkpoints_dir,
@@ -193,14 +164,9 @@ def train_hedging_model(
         render=False
     )
     
-    
-    # Train model
+    # Entrenar el modelo
     if verbose:
-        print(f"Training {algorithm} for {total_timesteps} timesteps...")
-        print(f"Episode length: {episode_months} months")
-        print(f"Portfolio value: ${initial_capital:,}")
-        print(f"Dead zone: ±{dead_zone*100:.1f}%")
-        print(f"Action change penalty threshold: {action_change_penalty_threshold:.2f}")
+        print(f"Entrenando {algorithm} por {total_timesteps} pasos de tiempo...")
     
     model.learn(
         total_timesteps=total_timesteps,
@@ -208,37 +174,30 @@ def train_hedging_model(
         tb_log_name=f"{model_prefix}_run"
     )
     
-    # Save final model
+    # Guardar el modelo final
     final_model_path = os.path.join("models", f"{model_prefix}_final")
     model.save(final_model_path)
     if verbose:
-        print("Final model saved to {}".format(final_model_path))
+        print(f"Modelo final guardado en {final_model_path}")
     
     return model
-
-
 
 if __name__ == "__main__":
     import argparse
     
-    parser = argparse.ArgumentParser(description='Train portfolio hedging model')
-    parser.add_argument('--data_path', default="data/processed/NVDA_hedging_features.csv",
-                       help='Path to processed dataset')
+    parser = argparse.ArgumentParser(description='Entrenar modelo de LDI')
     parser.add_argument('--algorithm', choices=['PPO', 'DDPG'], default='PPO',
-                       help='RL algorithm to use')
-    parser.add_argument('--timesteps', type=int, default=10_000_000,
-                       help='Total training timesteps')
-    parser.add_argument('--episode_months', type=int, default=6,
-                       help='Episode length in months')
-    parser.add_argument('--model_path', default="models/best_model/best_model",
-                        help='Path to model for evaluation')
+                        help='Algoritmo de RL a usar')
+    parser.add_argument('--timesteps', type=int, default=1_000_000,
+                        help='Número total de pasos de tiempo de entrenamiento')
+    parser.add_argument('--episode_months', type=int, default=120,
+                        help='Duración de cada episodio en meses')
     
     args = parser.parse_args()
     
-    print("Training model...")
-    trained_model = train_hedging_model(
-        data_path=args.data_path,
+    print("Iniciando el entrenamiento del modelo de LDI...")
+    trained_model = train_ldi_model(
         total_timesteps=args.timesteps,
-        episode_months=args.episode_months,
+        episode_length_months=args.episode_months,
         algorithm=args.algorithm
     )
